@@ -6,7 +6,7 @@
 2. **Which dustbin** to use (Green, Blue, Grey, Red, Orange), color coded
 3. **Recyclability** (Recyclable / Compostable / Non-Recyclable / Hazardous) with preparation tips, decomposition time and an eco fact
 
-It's a full-stack app: a **Node.js + Express backend** with a **SQLite database**, and a **web frontend** served by the same server.
+It's a full-stack app: a **Node.js + Express backend** and a **web frontend**. It stores data in **SQLite** when you run it on your computer, and in **Postgres (Neon)** when deployed to **Vercel**.
 
 ---
 
@@ -63,19 +63,26 @@ Anyone on the same Wi-Fi can open that link on their phone or laptop. They'll sh
 
 If Windows asks whether to allow Node.js through the firewall, allow it on **private networks**.
 
-### Option B: Put it online (free)
+### Option B: Put it online with Vercel (free)
 
-Any Node host works. For example, on [Render](https://render.com):
+The project is ready for Vercel: `vercel.json` serves the website from `public/` and runs the API in `api/index.js` as a serverless function.
 
-1. Push this folder to a GitHub repository
-2. On Render: **New → Web Service**, then pick the repo
-3. Settings:
-   - **Build command:** `npm install`
-   - **Start command:** `npm start`
-   - **Environment variables (optional):** `GEMINI_API_KEY`
-4. Deploy. You get an `https://...onrender.com` link to share, and camera and voice work there.
+1. **Import the repo:** on [vercel.com](https://vercel.com) click **Add New… → Project**, then import this GitHub repository.
+   - Framework Preset: **Other**
+   - Leave Build Command and Output Directory empty (they come from `vercel.json`)
+   - Click **Deploy**
+2. **Add a database** (so history and the leaderboard are saved):
+   - Open your project → **Storage** tab → **Create Database** → **Neon** (Serverless Postgres, free plan)
+   - Connect it to the project. This adds a `DATABASE_URL` environment variable automatically.
+   - The tables are created automatically on first use.
+3. **Add your Gemini key** (optional, for photo AI): **Settings → Environment Variables** → add `GEMINI_API_KEY`.
+4. **Redeploy:** **Deployments** tab → **⋯** on the latest one → **Redeploy**, so it picks up the new variables.
 
-> Free hosting plans usually wipe the disk on every redeploy, so history and the leaderboard reset. Attach a persistent disk and set `DB_PATH` to a file on it if you want them to stick.
+You get an `https://your-project.vercel.app` link to share, and camera and voice work there because it's https.
+
+> Without step 2 the app still works, but it falls back to a temporary SQLite file that Vercel wipes often, so history and the leaderboard won't stick.
+
+Any other Node host (Render, Railway, a VPS) also works: build with `npm install`, start with `npm start`, and set `DATABASE_URL` or a persistent `DB_PATH`.
 
 ### Option C: Give them the code
 
@@ -90,9 +97,10 @@ All settings are optional and go in `.env` (see `.env.example`):
 | Variable | Default | Purpose |
 | :--- | :--- | :--- |
 | `PORT` | `3000` | Port the server listens on |
-| `DB_PATH` | `./data/ecosort.db` | SQLite database file |
+| `DATABASE_URL` | *(empty)* | Postgres connection string. When set, it's used instead of SQLite (Vercel's Neon integration sets it for you) |
+| `DB_PATH` | `./data/ecosort.db` | SQLite database file, used when `DATABASE_URL` is empty |
 | `GEMINI_API_KEY` | *(empty)* | Turns on Gemini photo recognition |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | Which Gemini model to use |
+| `GEMINI_MODEL` | `gemini-flash-latest` | Which Gemini model to use. If it's retired or busy, the app falls back to `gemini-flash-latest` / `gemini-flash-lite-latest` |
 
 ---
 
@@ -101,12 +109,17 @@ All settings are optional and go in `.env` (see `.env.example`):
 ```
 smart-waste-segregator/
 ├── package.json
+├── vercel.json               # Vercel: static site from public/, API in api/
 ├── .env.example              # copy to .env for settings
+├── api/index.js              # Vercel serverless entry point
 ├── server/                   # ── BACKEND ──
-│   ├── index.js              # starts the server (npm start)
+│   ├── index.js              # starts the server locally (npm start)
 │   ├── app.js                # Express app: /api + serves public/
 │   ├── config.js             # reads .env / environment variables
-│   ├── db.js                 # SQLite tables: scans, quiz_sessions, leaderboard
+│   ├── store/                # storage: tables scans, quiz_sessions, leaderboard
+│   │   ├── index.js          # picks Postgres (DATABASE_URL) or SQLite
+│   │   ├── postgres.js       # Neon / any Postgres (used on Vercel)
+│   │   └── sqlite.js         # local file database
 │   ├── routes/api.js         # all REST endpoints
 │   ├── services/
 │   │   ├── classifier.js     # search, fuzzy matching, rules, label → item mapping
@@ -122,7 +135,7 @@ smart-waste-segregator/
 │       ├── game.js           # quiz + leaderboard UI
 │       ├── vision.js         # on-device MobileNet (loaded only when needed)
 │       └── speech.js         # voice search, read-aloud, sound effects
-├── tests/api.test.js         # API tests (npm test)
+├── tests/                    # npm test: API on SQLite + Postgres, Vercel entry
 └── data/                     # SQLite database (created automatically)
 ```
 
@@ -151,7 +164,7 @@ All endpoints return JSON. History endpoints need an `X-Client-Id` header (the f
 | GET | `/api/search?q=soda can` | Best match for a name: `{ match: { item, confidence, matchType } }` |
 | GET | `/api/suggest?q=bott` | Autocomplete suggestions |
 | POST | `/api/classify/labels` | `{ predictions: [{ className, probability }] }` → matching items |
-| POST | `/api/classify/image` | Multipart `image` file → Gemini result (max 5 MB, 15 per minute) |
+| POST | `/api/classify/image` | Multipart `image` file → Gemini result (max 4 MB, 15 per minute; the browser shrinks photos first) |
 | GET / POST / DELETE | `/api/history` | List, add or clear this browser's scans |
 | GET | `/api/stats` | Scans per bin: yours and the community's |
 | POST | `/api/quiz` | Start a 10-question round |
@@ -183,7 +196,7 @@ curl "http://localhost:3000/api/search?q=banana%20peel"
 
 ```bash
 npm run dev   # restarts the server automatically when you edit backend files
-npm test      # runs the API tests
+npm test      # runs the API tests on SQLite and Postgres (in-memory PGlite)
 ```
 
 To add a new waste item, add an entry to `WASTE_ITEMS` in `server/data/wasteData.js` and restart. It shows up in search, the dustbin guide and the quiz automatically.
@@ -194,3 +207,5 @@ To add a new waste item, add an entry to `WASTE_ITEMS` in `server/data/wasteData
 - **"Can't reach the EcoSort server" banner:** the server isn't running. Run `npm start` again.
 - **Port already in use:** set another port, for example `PORT=4000` in `.env`.
 - **Camera / mic don't work:** use `http://localhost:3000` on the same computer, or an https deployment.
+- **Photo AI says it failed:** Google's Gemini servers are sometimes overloaded. The app retries with a lighter model, then falls back to on-device recognition. Check that `GEMINI_API_KEY` is set (on Vercel: Settings → Environment Variables, then redeploy).
+- **On Vercel, history or the leaderboard keeps resetting:** connect a Neon database (Storage tab) and redeploy.

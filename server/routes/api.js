@@ -4,9 +4,10 @@ const multer = require('multer');
 const { DUSTBINS, WASTE_ITEMS } = require('../data/wasteData');
 const classifier = require('../services/classifier');
 const quiz = require('../services/quiz');
-const { HISTORY_LIMIT } = require('../db');
+const { HISTORY_LIMIT } = require('../store/limits');
 
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+// Vercel rejects request bodies over 4.5 MB; the browser shrinks photos well below this
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']);
 const CLIENT_ID_PATTERN = /^[A-Za-z0-9-]{8,64}$/;
 
@@ -77,7 +78,7 @@ function createApiRouter({ repo, config, classifyImage }) {
   function uploadImage(req, res, next) {
     upload.single('image')(req, res, err => {
       if (!err) return next();
-      if (err.code === 'LIMIT_FILE_SIZE') return next(httpError(413, 'Image is too large (max 5 MB).'));
+      if (err.code === 'LIMIT_FILE_SIZE') return next(httpError(413, 'Image is too large (max 4 MB).'));
       if (err.status) return next(err);
       next(httpError(400, err.message));
     });
@@ -174,11 +175,11 @@ function createApiRouter({ repo, config, classifyImage }) {
   );
 
   // ---------- Scan history (per browser) ----------
-  router.get('/history', requireClient, (req, res) => {
-    res.json({ history: repo.listScans(req.clientId) });
-  });
+  router.get('/history', requireClient, asyncRoute(async (req, res) => {
+    res.json({ history: await repo.listScans(req.clientId) });
+  }));
 
-  router.post('/history', requireClient, (req, res, next) => {
+  router.post('/history', requireClient, asyncRoute(async (req, res, next) => {
     const { itemId, item, source, confidence } = req.body || {};
     const known = typeof itemId === 'string' ? classifier.getItemById(itemId) : null;
 
@@ -201,44 +202,44 @@ function createApiRouter({ repo, config, classifyImage }) {
       };
     }
 
-    const scan = repo.addScan(req.clientId, {
+    const scan = await repo.addScan(req.clientId, {
       ...snapshot,
       source: boundedString(source, 40) || 'search',
       confidence: parseConfidence(confidence)
     });
     res.status(201).json({ scan });
-  });
+  }));
 
-  router.delete('/history', requireClient, (req, res) => {
-    res.json({ deleted: repo.clearScans(req.clientId) });
-  });
+  router.delete('/history', requireClient, asyncRoute(async (req, res) => {
+    res.json({ deleted: await repo.clearScans(req.clientId) });
+  }));
 
-  router.get('/stats', (req, res) => {
+  router.get('/stats', asyncRoute(async (req, res) => {
     const clientId = req.get('x-client-id');
-    res.json(repo.stats(clientId && CLIENT_ID_PATTERN.test(clientId) ? clientId : null));
-  });
+    res.json(await repo.stats(clientId && CLIENT_ID_PATTERN.test(clientId) ? clientId : null));
+  }));
 
   // ---------- Quiz & leaderboard ----------
-  router.post('/quiz', (req, res) => {
-    res.status(201).json(quiz.startQuiz(repo));
-  });
+  router.post('/quiz', asyncRoute(async (req, res) => {
+    res.status(201).json(await quiz.startQuiz(repo));
+  }));
 
-  router.get('/quiz/:sessionId', (req, res) => {
-    res.json(quiz.getQuiz(repo, req.params.sessionId));
-  });
+  router.get('/quiz/:sessionId', asyncRoute(async (req, res) => {
+    res.json(await quiz.getQuiz(repo, req.params.sessionId));
+  }));
 
-  router.post('/quiz/:sessionId/answer', (req, res) => {
-    res.json(quiz.answerQuestion(repo, req.params.sessionId, req.body?.binId));
-  });
+  router.post('/quiz/:sessionId/answer', asyncRoute(async (req, res) => {
+    res.json(await quiz.answerQuestion(repo, req.params.sessionId, req.body?.binId));
+  }));
 
-  router.post('/quiz/:sessionId/submit', (req, res) => {
-    res.status(201).json(quiz.submitScore(repo, req.params.sessionId, req.body?.name));
-  });
+  router.post('/quiz/:sessionId/submit', asyncRoute(async (req, res) => {
+    res.status(201).json(await quiz.submitScore(repo, req.params.sessionId, req.body?.name));
+  }));
 
-  router.get('/leaderboard', (req, res) => {
+  router.get('/leaderboard', asyncRoute(async (req, res) => {
     const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 10));
-    res.json({ leaderboard: repo.leaderboard(limit) });
-  });
+    res.json({ leaderboard: await repo.leaderboard(limit) });
+  }));
 
   return router;
 }

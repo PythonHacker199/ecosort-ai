@@ -3,7 +3,13 @@
 const { DUSTBINS } = require('../data/wasteData');
 
 const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
-const REQUEST_TIMEOUT_MS = 20000;
+// Alias that always points at Google's current Flash model, used if the configured model is retired
+const FALLBACK_MODEL = 'gemini-flash-latest';
+// Lighter model that is usually still available when Flash is overloaded
+const BUSY_FALLBACK_MODEL = 'gemini-flash-lite-latest';
+const MAX_ATTEMPTS = 3;
+// 3 attempts x 18 s stays inside Vercel's 60 s function limit (vercel.json)
+const ATTEMPT_TIMEOUT_MS = 18000;
 
 const PROMPT = `
 You are an expert Smart Waste Segregation AI. Analyze this image of waste/item.
@@ -59,8 +65,8 @@ function normalizeGeminiItem(parsed) {
   };
 }
 
-async function classifyWithGemini({ imageBuffer, mimeType, apiKey, model }) {
-  const response = await fetch(`${GEMINI_ENDPOINT}/${encodeURIComponent(model)}:generateContent`, {
+function requestGemini({ imageBuffer, mimeType, apiKey, model }) {
+  return fetch(`${GEMINI_ENDPOINT}/${encodeURIComponent(model)}:generateContent`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -78,11 +84,44 @@ async function classifyWithGemini({ imageBuffer, mimeType, apiKey, model }) {
         response_mime_type: 'application/json'
       }
     }),
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+    signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS)
   });
+}
 
-  if (!response.ok) {
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+async function classifyWithGemini({ imageBuffer, mimeType, apiKey, model }) {
+  let currentModel = model || FALLBACK_MODEL;
+  let response;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const canRetry = attempt < MAX_ATTEMPTS;
+    try {
+      response = await requestGemini({ imageBuffer, mimeType, apiKey, model: currentModel });
+    } catch (err) {
+      if (err.name !== 'TimeoutError' || !canRetry) throw err;
+      // Too slow: the model is probably overloaded, so try the lighter one
+      console.warn(`[gemini] "${currentModel}" timed out, trying "${BUSY_FALLBACK_MODEL}"`);
+      currentModel = BUSY_FALLBACK_MODEL;
+      continue;
+    }
+    if (response.ok) break;
+
     const body = await response.text();
+
+    // Google retires old models; switch to the always-current alias instead of failing
+    if (response.status === 404 && currentModel !== FALLBACK_MODEL && canRetry) {
+      console.warn(`[gemini] Model "${currentModel}" is unavailable, using "${FALLBACK_MODEL}". Update GEMINI_MODEL.`);
+      currentModel = FALLBACK_MODEL;
+      continue;
+    }
+    // Busy or rate limited: wait a moment, then use the lighter model
+    if ((response.status === 429 || response.status === 503) && canRetry) {
+      console.warn(`[gemini] "${currentModel}" is busy (${response.status}), trying "${BUSY_FALLBACK_MODEL}"`);
+      currentModel = BUSY_FALLBACK_MODEL;
+      await sleep(1000);
+      continue;
+    }
     throw new Error(`Gemini API error (${response.status}): ${body.slice(0, 300)}`);
   }
 

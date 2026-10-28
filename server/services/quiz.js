@@ -50,21 +50,21 @@ function publicState(session) {
   };
 }
 
-function startQuiz(repo) {
-  const session = repo.createSession(crypto.randomUUID(), pickQuestionKeys(QUESTIONS_PER_ROUND));
+async function startQuiz(repo) {
+  const session = await repo.createSession(crypto.randomUUID(), pickQuestionKeys(QUESTIONS_PER_ROUND));
   return publicState(session);
 }
 
-function getQuiz(repo, sessionId) {
-  const session = repo.getSession(sessionId);
+async function getQuiz(repo, sessionId) {
+  const session = await repo.getSession(sessionId);
   if (!session) throw httpError(404, 'Quiz session not found. Start a new round.');
   return publicState(session);
 }
 
-function answerQuestion(repo, sessionId, binId) {
+async function answerQuestion(repo, sessionId, binId) {
   if (!Object.hasOwn(DUSTBINS, binId)) throw httpError(400, 'Unknown dustbin');
 
-  const session = repo.getSession(sessionId);
+  const session = await repo.getSession(sessionId);
   if (!session) throw httpError(404, 'Quiz session not found. Start a new round.');
   if (session.finished) throw httpError(409, 'This round is already finished.');
 
@@ -86,7 +86,7 @@ function answerQuestion(repo, sessionId, binId) {
   session.currentIndex += 1;
   session.finished = session.currentIndex >= session.questionKeys.length;
 
-  if (!repo.saveSessionProgress(session, expectedIndex)) {
+  if (!(await repo.saveSessionProgress(session, expectedIndex))) {
     throw httpError(409, 'That question was already answered.');
   }
 
@@ -108,15 +108,15 @@ function cleanPlayerName(name) {
   return name.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim().slice(0, MAX_NAME_LENGTH);
 }
 
-function submitScore(repo, sessionId, rawName) {
+async function submitScore(repo, sessionId, rawName) {
   const name = cleanPlayerName(rawName);
   if (!name) throw httpError(400, 'Please enter a name for the leaderboard.');
 
-  const session = repo.getSession(sessionId);
+  const session = await repo.getSession(sessionId);
   if (!session) throw httpError(404, 'Quiz session not found.');
   if (!session.finished) throw httpError(409, 'Finish the round before submitting your score.');
 
-  const saved = repo.submitScore(session, name);
+  const saved = await repo.submitScore(session, name);
   if (!saved) throw httpError(409, 'This score was already submitted.');
 
   return { rank: saved.rank, score: session.score, name };

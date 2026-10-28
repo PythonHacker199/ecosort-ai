@@ -1,8 +1,11 @@
-// SQLite storage for scan history, quiz sessions and the leaderboard
-// Uses Node's built-in node:sqlite module, so there is nothing to compile.
+// SQLite storage for scan history, quiz sessions and the leaderboard.
+// Used when running locally (npm start). Uses Node's built-in node:sqlite
+// module, so there is nothing to compile. Methods are async to match the
+// Postgres store used on Vercel.
 const fs = require('node:fs');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
+const { HISTORY_LIMIT, toIso } = require('./limits');
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS scans (
@@ -45,9 +48,7 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_leaderboard_score ON leaderboard (score DESC, id ASC);
 `;
 
-const HISTORY_LIMIT = 50;
-
-function openDatabase(dbPath) {
+function openSqliteStore(dbPath) {
   if (dbPath !== ':memory:') {
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   }
@@ -68,7 +69,7 @@ function toScan(row) {
     isCompostable: Boolean(row.is_compostable),
     source: row.source,
     confidence: row.confidence,
-    createdAt: row.created_at
+    createdAt: toIso(row.created_at)
   };
 }
 
@@ -85,6 +86,28 @@ function toSession(row) {
     finished: Boolean(row.finished),
     submitted: Boolean(row.submitted)
   };
+}
+
+function toLeaderboardEntry(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    score: row.score,
+    correct: row.correct,
+    total: row.total,
+    bestStreak: row.best_streak,
+    createdAt: toIso(row.created_at)
+  };
+}
+
+function countsToObject(rows) {
+  const byBin = {};
+  let total = 0;
+  for (const row of rows) {
+    byBin[row.bin_id] = row.n;
+    total += row.n;
+  }
+  return { total, byBin };
 }
 
 function createRepository(db) {
@@ -119,18 +142,8 @@ function createRepository(db) {
     rankOf: db.prepare('SELECT COUNT(*) AS better FROM leaderboard WHERE score > ? OR (score = ? AND id < ?)')
   };
 
-  function countsToObject(rows) {
-    const byBin = {};
-    let total = 0;
-    for (const row of rows) {
-      byBin[row.bin_id] = row.n;
-      total += row.n;
-    }
-    return { total, byBin };
-  }
-
   return {
-    addScan(clientId, scan) {
+    async addScan(clientId, scan) {
       const info = stmts.insertScan.run(
         clientId,
         scan.itemId ?? null,
@@ -146,33 +159,33 @@ function createRepository(db) {
       return toScan(stmts.getScan.get(info.lastInsertRowid));
     },
 
-    listScans(clientId, limit = HISTORY_LIMIT) {
+    async listScans(clientId, limit = HISTORY_LIMIT) {
       return stmts.listScans.all(clientId, limit).map(toScan);
     },
 
-    clearScans(clientId) {
-      return stmts.clearScans.run(clientId).changes;
+    async clearScans(clientId) {
+      return Number(stmts.clearScans.run(clientId).changes);
     },
 
-    stats(clientId) {
+    async stats(clientId) {
       return {
         community: countsToObject(stmts.countByBin.all()),
         mine: clientId ? countsToObject(stmts.countByBinForClient.all(clientId)) : { total: 0, byBin: {} }
       };
     },
 
-    createSession(id, questionKeys) {
+    async createSession(id, questionKeys) {
       stmts.deleteOldSessions.run();
       stmts.insertSession.run(id, JSON.stringify(questionKeys));
       return toSession(stmts.getSession.get(id));
     },
 
-    getSession(id) {
+    async getSession(id) {
       return toSession(stmts.getSession.get(id));
     },
 
     // Returns false if another request already advanced this session (double click)
-    saveSessionProgress(session, expectedIndex) {
+    async saveSessionProgress(session, expectedIndex) {
       const info = stmts.updateSession.run(
         session.currentIndex,
         session.score,
@@ -183,11 +196,11 @@ function createRepository(db) {
         session.id,
         expectedIndex
       );
-      return info.changes === 1;
+      return Number(info.changes) === 1;
     },
 
-    submitScore(session, name) {
-      const claimed = stmts.markSubmitted.run(session.id).changes === 1;
+    async submitScore(session, name) {
+      const claimed = Number(stmts.markSubmitted.run(session.id).changes) === 1;
       if (!claimed) return null;
       const info = stmts.insertScore.run(name, session.score, session.correct, session.questionKeys.length, session.bestStreak);
       const id = Number(info.lastInsertRowid);
@@ -195,22 +208,14 @@ function createRepository(db) {
       return { id, rank: better + 1 };
     },
 
-    leaderboard(limit = 10) {
-      return stmts.topScores.all(limit).map(row => ({
-        id: row.id,
-        name: row.name,
-        score: row.score,
-        correct: row.correct,
-        total: row.total,
-        bestStreak: row.best_streak,
-        createdAt: row.created_at
-      }));
+    async leaderboard(limit = 10) {
+      return stmts.topScores.all(limit).map(toLeaderboardEntry);
     },
 
-    close() {
+    async close() {
       db.close();
     }
   };
 }
 
-module.exports = { openDatabase, HISTORY_LIMIT };
+module.exports = { openSqliteStore };

@@ -3,7 +3,10 @@
 
 const App = (() => {
   const TABS = ['classifier', 'explorer', 'game', 'history'];
-  const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+  const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+  // Photos sent to the server are shrunk first: faster, and under the 4 MB upload limit
+  const UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
+  const UPLOAD_MAX_SIDE = 1280;
   const MATCH_LABELS = {
     exact: 'Exact match',
     keyword_exact: 'Keyword match',
@@ -312,7 +315,7 @@ const App = (() => {
 
   function handleImageFile(file) {
     if (!file.type.startsWith('image/')) return toast('Please choose an image file (JPG, PNG, WEBP).');
-    if (file.size > MAX_IMAGE_BYTES) return toast('That image is larger than 5 MB. Please pick a smaller one.');
+    if (file.size > MAX_IMAGE_BYTES) return toast('That image is larger than 20 MB. Please pick a smaller one.');
     classifyImageBlob(file);
   }
 
@@ -334,6 +337,23 @@ const App = (() => {
     });
   }
 
+  async function shrinkForUpload(blob, url) {
+    try {
+      const img = await loadImage(url);
+      const scale = Math.min(1, UPLOAD_MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
+      if (scale === 1 && blob.size <= 1024 * 1024) return blob;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.naturalWidth * scale);
+      canvas.height = Math.round(img.naturalHeight * scale);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      const shrunk = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+      return shrunk || blob;
+    } catch {
+      return blob; // e.g. HEIC photos the browser can't decode: send as-is
+    }
+  }
+
   function setAnalyzing(on, detail = '') {
     $('classification-loading').classList.toggle('hidden', !on);
     $('scanning-laser-line').classList.toggle('hidden', !on);
@@ -346,12 +366,16 @@ const App = (() => {
     try {
       if (serverConfig.geminiEnabled) {
         setAnalyzing(true, 'Asking Gemini AI on the server…');
-        try {
-          const { result } = await Api.classifyImage(blob, blob.name || 'photo.jpg');
-          displayVerdict(result.item, result.confidence, 'Gemini Photo AI');
-          return;
-        } catch (err) {
-          toast(`${err.message} Trying on-device AI…`);
+        const upload = await shrinkForUpload(blob, url);
+        if (upload.size <= UPLOAD_MAX_BYTES) {
+          try {
+            const filename = upload === blob ? (blob.name || 'photo.jpg') : 'photo.jpg';
+            const { result } = await Api.classifyImage(upload, filename);
+            displayVerdict(result.item, result.confidence, 'Gemini Photo AI');
+            return;
+          } catch (err) {
+            toast(`${err.message} Trying on-device AI…`);
+          }
         }
       }
 
