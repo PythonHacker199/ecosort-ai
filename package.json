@@ -1,0 +1,19 @@
+{
+  "name": "ecosort-ai",
+  "version": "2.0.0",
+  "description": "EcoSort AI - Smart Waste Segregator: tells you which dustbin an item goes in, with a Node/Express API and SQLite storage.",
+  "main": "server/index.js",
+  "private": true,
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test \"tests/*.test.js\""
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "multer": "^2.0.2"
+  }
+}

@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EcoSort AI — Smart Waste Segregator</title>
+  <meta name="description" content="Find out which dustbin your waste goes in: upload a photo, use your camera, or type the item name.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>♻️</text></svg>">
+
+  <!-- Tailwind CSS (Play CDN) -->
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+
+  <link rel="stylesheet" href="styles.css">
+
+  <!-- Icons and confetti (the TensorFlow.js image model is loaded on demand by js/vision.js) -->
+  <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js" defer></script>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+
+  <!-- Top Announcement Bar -->
+  <div class="bg-emerald-900 text-emerald-100 text-xs py-1.5 px-4 text-center font-medium flex items-center justify-center gap-2">
+    <span>🌱 Sort Smart, Save the Earth: Segregate at source for a cleaner future</span>
+    <span class="hidden sm:inline opacity-50">•</span>
+    <span class="hidden sm:inline text-emerald-300">Photo upload, live camera &amp; voice search</span>
+  </div>
+
+  <!-- Header -->
+  <header class="bg-white border-b border-gray-200 sticky top-0 z-40">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+
+      <button type="button" class="flex items-center gap-3 text-left" data-nav-target="classifier" aria-label="EcoSort AI home">
+        <span class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center shadow-md shadow-emerald-500/20">
+          <i data-lucide="recycle" class="w-6 h-6"></i>
+        </span>
+        <span>
+          <span class="block font-extrabold text-xl tracking-tight text-gray-900">EcoSort<span class="text-emerald-600">AI</span></span>
+          <span class="block text-[11px] text-gray-500 font-medium">Smart Waste Segregator</span>
+        </span>
+      </button>
+
+      <nav class="hidden md:flex items-center gap-1 border border-gray-200 p-1 rounded-xl bg-gray-50 text-xs font-semibold" aria-label="Main">
+        <button type="button" data-nav-target="classifier" class="nav-btn px-3.5 py-1.5 rounded-lg flex items-center gap-1.5">
+          <i data-lucide="scan" class="w-3.5 h-3.5"></i> Identify Waste
+        </button>
+        <button type="button" data-nav-target="explorer" class="nav-btn px-3.5 py-1.5 rounded-lg flex items-center gap-1.5">
+          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Dustbins Guide
+        </button>
+        <button type="button" data-nav-target="game" class="nav-btn px-3.5 py-1.5 rounded-lg flex items-center gap-1.5">
+          <i data-lucide="gamepad-2" class="w-3.5 h-3.5"></i> EcoSort Quiz
+        </button>
+        <button type="button" data-nav-target="history" class="nav-btn px-3.5 py-1.5 rounded-lg flex items-center gap-1.5">
+          <i data-lucide="history" class="w-3.5 h-3.5"></i> History
+        </button>
+      </nav>
+
+      <div id="model-status-badge" class="hidden sm:inline-flex text-xs px-2.5 py-1 rounded-full bg-gray-50 text-gray-600 border border-gray-200 items-center">
+        <span class="inline-block w-2 h-2 rounded-full bg-gray-400 mr-1.5 animate-pulse"></span>
+        Connecting…
+      </div>
+    </div>
+
+    <!-- Mobile Nav -->
+    <nav class="md:hidden flex items-center justify-around border-t border-gray-100 px-2 py-1.5 bg-gray-50 text-xs" aria-label="Main (mobile)">
+      <button type="button" data-nav-target="classifier" class="nav-btn py-1 px-3 rounded-lg flex flex-col items-center">
+        <i data-lucide="scan" class="w-4 h-4 mb-0.5"></i> Scan
+      </button>
+      <button type="button" data-nav-target="explorer" class="nav-btn py-1 px-3 rounded-lg flex flex-col items-center">
+        <i data-lucide="trash-2" class="w-4 h-4 mb-0.5"></i> Dustbins
+      </button>
+      <button type="button" data-nav-target="game" class="nav-btn py-1 px-3 rounded-lg flex flex-col items-center">
+        <i data-lucide="gamepad-2" class="w-4 h-4 mb-0.5"></i> Quiz
+      </button>
+      <button type="button" data-nav-target="history" class="nav-btn py-1 px-3 rounded-lg flex flex-col items-center">
+        <i data-lucide="history" class="w-4 h-4 mb-0.5"></i> History
+      </button>
+    </nav>
+  </header>
+
+  <!-- Server connection problem banner -->
+  <div id="offline-banner" class="hidden bg-red-50 border-b border-red-200 text-red-800 text-sm px-4 py-2 text-center">
+    Can't reach the EcoSort server. Make sure it's running (<code class="bg-red-100 px-1 rounded">npm start</code>) and refresh the page.
+  </div>
+
+  <main class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8">
+
+    <!-- ======================================================== -->
+    <!-- SECTION 1: CLASSIFIER -->
+    <!-- ======================================================== -->
+    <section id="classifier-section" class="tab-content space-y-6">
+
+      <div class="text-center max-w-2xl mx-auto mb-4">
+        <h1 class="text-2xl sm:text-4xl font-black text-gray-900 tracking-tight">What are you throwing away?</h1>
+        <p class="text-sm sm:text-base text-gray-600 mt-2">
+          Upload an image, scan with your camera, or type the item name. We’ll tell you the exact
+          <strong class="text-emerald-700">dustbin</strong>, <strong class="text-emerald-700">waste type</strong>, and
+          <strong class="text-emerald-700">recyclability</strong>.
+        </p>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+
+        <!-- Image / Camera -->
+        <div class="lg:col-span-5 bg-white rounded-3xl p-5 border border-gray-200/80 shadow-sm">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs font-bold uppercase tracking-wider text-gray-500 flex items-center gap-1.5">
+              <i data-lucide="camera" class="w-4 h-4 text-emerald-600"></i> Feed Image / Camera
+            </span>
+            <button id="camera-start-btn" type="button" class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors flex items-center gap-1">
+              <i data-lucide="video" class="w-3.5 h-3.5"></i> Live Camera
+            </button>
+          </div>
+
+          <div id="drop-zone" class="relative border-2 border-dashed border-gray-300 hover:border-emerald-500 rounded-2xl p-6 text-center cursor-pointer transition-all duration-200 bg-gray-50/50 flex flex-col items-center justify-center min-h-[220px]">
+            <input type="file" id="image-file-input" accept="image/*" class="hidden">
+
+            <div id="drop-zone-prompt" class="space-y-2">
+              <div class="w-14 h-14 rounded-2xl bg-white shadow-sm border border-gray-200 flex items-center justify-center text-emerald-600 mx-auto">
+                <i data-lucide="upload-cloud" class="w-7 h-7"></i>
+              </div>
+              <div>
+                <p class="text-sm font-bold text-gray-800">Drag &amp; drop waste photo here</p>
+                <p class="text-xs text-gray-500 mt-0.5">or click to browse (JPG, PNG, WEBP · max 5 MB)</p>
+              </div>
+              <span class="inline-block mt-2 text-xs font-semibold px-4 py-2 rounded-xl bg-gray-900 text-white shadow-sm">Choose Image File</span>
+            </div>
+
+            <div id="image-preview-container" class="hidden relative w-full h-48 rounded-xl overflow-hidden bg-black/5 flex items-center justify-center">
+              <img id="image-preview-element" src="" alt="Waste preview" class="max-h-full max-w-full object-contain rounded-lg">
+              <div id="scanning-laser-line" class="scanner-laser hidden"></div>
+              <span class="absolute bottom-2 right-2 text-xs bg-black/70 backdrop-blur text-white px-2.5 py-1 rounded-lg font-medium flex items-center gap-1">
+                <i data-lucide="refresh-cw" class="w-3 h-3"></i> Change
+              </span>
+            </div>
+
+            <div id="classification-loading" class="hidden absolute inset-0 bg-white/90 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center z-30">
+              <div class="w-10 h-10 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin"></div>
+              <p class="text-xs font-bold text-gray-800 mt-3">Analyzing waste product…</p>
+              <p id="classification-loading-detail" class="text-[11px] text-gray-500 mt-0.5">Running AI vision model</p>
+            </div>
+          </div>
+
+          <p id="photo-privacy-note" class="mt-3 text-[11px] text-gray-500">⚡ Photos are analyzed on your device</p>
+        </div>
+
+        <!-- Search & Voice -->
+        <div class="lg:col-span-7 space-y-4">
+          <div class="bg-white rounded-3xl p-5 sm:p-6 border border-gray-200/80 shadow-sm relative">
+            <div class="flex items-center justify-between mb-3">
+              <label for="waste-search-input" class="text-xs font-bold uppercase tracking-wider text-gray-500 flex items-center gap-1.5">
+                <i data-lucide="search" class="w-4 h-4 text-emerald-600"></i> Or Type Waste Name
+              </label>
+              <span id="voice-status-indicator" class="hidden text-xs text-red-600 font-bold animate-pulse">🎙️ Listening…</span>
+            </div>
+
+            <div class="relative">
+              <div class="relative flex items-center">
+                <i data-lucide="search" class="w-5 h-5 text-gray-400 absolute left-4 pointer-events-none"></i>
+                <input type="text" id="waste-search-input" maxlength="100"
+                       placeholder="e.g., Plastic bottle, Banana peel, Milk carton, AA battery..."
+                       autocomplete="off" role="combobox" aria-expanded="false" aria-controls="search-suggestions"
+                       class="w-full pl-12 pr-24 py-3.5 rounded-2xl bg-gray-50 border border-gray-200 focus:bg-white focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 focus:outline-none text-sm font-medium transition-all text-gray-900 placeholder:text-gray-400">
+                <div class="absolute right-2.5 flex items-center gap-1">
+                  <button id="voice-search-btn" type="button" title="Voice search: click and say the item" aria-label="Voice search" class="p-2 text-gray-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-xl transition-colors">
+                    <i data-lucide="mic" class="w-4 h-4"></i>
+                  </button>
+                  <button id="waste-search-btn" type="button" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition-colors shadow-sm">
+                    Find
+                  </button>
+                </div>
+              </div>
+              <div id="search-suggestions" role="listbox" class="hidden absolute left-0 right-0 top-full mt-2 bg-white rounded-2xl border border-gray-200 shadow-xl overflow-hidden z-30 max-h-60 overflow-y-auto"></div>
+            </div>
+
+            <div class="mt-4">
+              <p class="text-xs font-semibold text-gray-500 mb-2">Popular items to try:</p>
+              <div id="quick-pills-container" class="flex flex-wrap gap-2"></div>
+            </div>
+          </div>
+
+          <div class="bg-gray-100/70 rounded-2xl p-3 border border-gray-200/60 flex items-center justify-between text-xs text-gray-600 flex-wrap gap-2">
+            <span class="font-bold text-gray-700 flex items-center gap-1">
+              <i data-lucide="info" class="w-3.5 h-3.5 text-emerald-600"></i> Standard color code:
+            </span>
+            <div class="flex items-center gap-3 font-semibold text-[11px] flex-wrap">
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-emerald-600 inline-block"></span> Green = Wet</span>
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-blue-600 inline-block"></span> Blue = Dry Recyclable</span>
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-gray-600 inline-block"></span> Grey = Landfill</span>
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-red-600 inline-block"></span> Red = Hazardous</span>
+              <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-amber-600 inline-block"></span> Orange = E-Waste</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Result -->
+      <div id="verdict-container" class="mt-6" aria-live="polite">
+        <div id="verdict-empty-state" class="bg-white rounded-3xl p-10 border border-dashed border-gray-200 text-center max-w-xl mx-auto">
+          <div class="w-16 h-16 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-4">
+            <i data-lucide="sparkles" class="w-8 h-8"></i>
+          </div>
+          <h3 class="text-lg font-bold text-gray-800">Your segregation result will appear here</h3>
+          <p class="text-xs text-gray-500 mt-1 max-w-sm mx-auto leading-relaxed">
+            Upload an image, pick a sample above, or type any item name (e.g. "aluminum can" or "banana peel").
+          </p>
+        </div>
+        <div id="verdict-result-card" class="hidden"></div>
+      </div>
+    </section>
+
+    <!-- ======================================================== -->
+    <!-- SECTION 2: DUSTBINS GUIDE -->
+    <!-- ======================================================== -->
+    <section id="explorer-section" class="tab-content hidden space-y-6">
+      <div class="text-center max-w-2xl mx-auto">
+        <h2 class="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight">Municipal Dustbin Segregation Guide</h2>
+        <p class="text-sm text-gray-600 mt-2">The 5 dustbin colors and what belongs in each.</p>
+      </div>
+      <div id="bins-explorer-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+    </section>
+
+    <!-- ======================================================== -->
+    <!-- SECTION 3: QUIZ -->
+    <!-- ======================================================== -->
+    <section id="game-section" class="tab-content hidden">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+
+        <div class="lg:col-span-2 bg-white rounded-3xl p-6 sm:p-8 border border-gray-200 shadow-sm text-center">
+          <div class="flex items-center justify-between border-b border-gray-100 pb-4 mb-6 gap-3">
+            <div class="text-left">
+              <span class="text-xs font-bold text-emerald-600 uppercase tracking-wider">Mini-Game</span>
+              <h2 class="text-xl sm:text-2xl font-black text-gray-900">EcoSort Challenge</h2>
+              <p id="game-progress" class="text-xs text-gray-500 mt-0.5">Question – / –</p>
+            </div>
+            <div class="flex items-center gap-3">
+              <div class="bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200">
+                <span class="text-[11px] font-bold text-gray-500 block">SCORE</span>
+                <span id="game-score-display" class="text-lg font-black text-emerald-700">0</span>
+              </div>
+              <div class="bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-200">
+                <span class="text-[11px] font-bold text-gray-500 block">STREAK</span>
+                <span id="game-streak-display" class="text-lg font-black text-amber-700">0🔥</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Playing view -->
+          <div id="game-play-view">
+            <div class="py-4">
+              <p class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Which dustbin does this belong to?</p>
+              <div id="game-item-display" class="text-2xl sm:text-3xl font-extrabold text-gray-900 bg-gray-50 py-4 px-6 rounded-2xl border border-gray-200 inline-block shadow-inner mt-2">
+                Loading…
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-4">
+              <button type="button" data-bin="green" class="game-bin-btn p-3 rounded-2xl border-2 border-emerald-200 bg-emerald-50 hover:bg-emerald-100 hover:border-emerald-500 transition-all text-center group">
+                <span class="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center mx-auto mb-2 shadow-sm group-hover:scale-110 transition-transform"><i data-lucide="leaf" class="w-5 h-5"></i></span>
+                <span class="text-xs font-bold text-emerald-900 block">Green Bin</span>
+                <span class="text-[10px] text-emerald-700">Wet / Organic</span>
+              </button>
+              <button type="button" data-bin="blue" class="game-bin-btn p-3 rounded-2xl border-2 border-blue-200 bg-blue-50 hover:bg-blue-100 hover:border-blue-500 transition-all text-center group">
+                <span class="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center mx-auto mb-2 shadow-sm group-hover:scale-110 transition-transform"><i data-lucide="recycle" class="w-5 h-5"></i></span>
+                <span class="text-xs font-bold text-blue-900 block">Blue Bin</span>
+                <span class="text-[10px] text-blue-700">Dry Recyclable</span>
+              </button>
+              <button type="button" data-bin="grey" class="game-bin-btn p-3 rounded-2xl border-2 border-gray-200 bg-gray-50 hover:bg-gray-100 hover:border-gray-500 transition-all text-center group">
+                <span class="w-10 h-10 rounded-xl bg-gray-600 text-white flex items-center justify-center mx-auto mb-2 shadow-sm group-hover:scale-110 transition-transform"><i data-lucide="trash-2" class="w-5 h-5"></i></span>
+                <span class="text-xs font-bold text-gray-900 block">Grey Bin</span>
+                <span class="text-[10px] text-gray-700">Landfill Dry</span>
+              </button>
+              <button type="button" data-bin="red" class="game-bin-btn p-3 rounded-2xl border-2 border-red-200 bg-red-50 hover:bg-red-100 hover:border-red-500 transition-all text-center group">
+                <span class="w-10 h-10 rounded-xl bg-red-600 text-white flex items-center justify-center mx-auto mb-2 shadow-sm group-hover:scale-110 transition-transform"><i data-lucide="alert-triangle" class="w-5 h-5"></i></span>
+                <span class="text-xs font-bold text-red-900 block">Red Bin</span>
+                <span class="text-[10px] text-red-700">Hazardous</span>
+              </button>
+              <button type="button" data-bin="orange" class="game-bin-btn p-3 rounded-2xl border-2 border-amber-200 bg-amber-50 hover:bg-amber-100 hover:border-amber-500 transition-all text-center col-span-2 sm:col-span-1 group">
+                <span class="w-10 h-10 rounded-xl bg-amber-600 text-white flex items-center justify-center mx-auto mb-2 shadow-sm group-hover:scale-110 transition-transform"><i data-lucide="cpu" class="w-5 h-5"></i></span>
+                <span class="text-xs font-bold text-amber-900 block">Orange Bin</span>
+                <span class="text-[10px] text-amber-700">E-Waste</span>
+              </button>
+            </div>
+
+            <div id="game-feedback-card" class="hidden" aria-live="polite"></div>
+          </div>
+
+          <!-- Round finished view -->
+          <div id="game-over-view" class="hidden py-4">
+            <div class="text-5xl mb-2">🏆</div>
+            <h3 class="text-2xl font-black text-gray-900">Round complete!</h3>
+            <p id="game-over-summary" class="text-sm text-gray-600 mt-1"></p>
+            <form id="leaderboard-form" class="mt-5 flex flex-col sm:flex-row gap-2 justify-center max-w-sm mx-auto">
+              <label for="player-name-input" class="sr-only">Your name</label>
+              <input id="player-name-input" type="text" maxlength="24" required placeholder="Your name"
+                     class="flex-1 px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none">
+              <button type="submit" class="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm">Save to leaderboard</button>
+            </form>
+            <p id="leaderboard-form-status" class="text-xs mt-2 text-gray-500"></p>
+          </div>
+
+          <div class="flex items-center justify-center gap-3 mt-6 pt-4 border-t border-gray-100">
+            <button id="game-next-btn" type="button" disabled class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs shadow-sm transition-colors">
+              Next Waste Item →
+            </button>
+            <button id="game-reset-btn" type="button" class="px-4 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold text-xs transition-colors">
+              New Round
+            </button>
+          </div>
+        </div>
+
+        <!-- Leaderboard -->
+        <aside class="bg-white rounded-3xl p-6 border border-gray-200 shadow-sm">
+          <div class="flex items-center gap-2 mb-4">
+            <i data-lucide="trophy" class="w-5 h-5 text-amber-500"></i>
+            <h3 class="font-black text-gray-900">Leaderboard</h3>
+          </div>
+          <ol id="leaderboard-list" class="space-y-2 text-sm">
+            <li class="text-xs text-gray-500">Loading…</li>
+          </ol>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ======================================================== -->
+    <!-- SECTION 4: HISTORY & STATS -->
+    <!-- ======================================================== -->
+    <section id="history-section" class="tab-content hidden space-y-6">
+      <div class="max-w-3xl mx-auto space-y-6">
+
+        <div id="stats-panel" class="grid grid-cols-1 sm:grid-cols-2 gap-4"></div>
+
+        <div>
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h2 class="text-2xl font-black text-gray-900">Recent Classifications</h2>
+              <p class="text-xs text-gray-500">Items you identified on this device (saved on the server)</p>
+            </div>
+            <button id="clear-history-btn" type="button" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 transition-colors">
+              Clear History
+            </button>
+          </div>
+          <div id="history-empty" class="bg-white rounded-2xl p-8 text-center border border-dashed border-gray-200">
+            <p class="text-sm text-gray-500">No scans recorded yet. Search or scan items to see history here!</p>
+          </div>
+          <div id="history-items-container" class="space-y-3"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ======================================================== -->
+  <!-- MODALS -->
+  <!-- ======================================================== -->
+
+  <!-- Live Camera -->
+  <div id="camera-modal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="camera-modal-title">
+    <div class="bg-white rounded-3xl overflow-hidden max-w-lg w-full shadow-2xl">
+      <div class="p-4 bg-gray-900 text-white flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <i data-lucide="camera" class="w-5 h-5 text-emerald-400"></i>
+          <span id="camera-modal-title" class="font-bold text-sm">Live Waste Camera Scanner</span>
+        </div>
+        <button id="camera-close-btn" type="button" aria-label="Close camera" class="p-1 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <div class="relative bg-black h-80 flex items-center justify-center overflow-hidden">
+        <video id="camera-video-feed" playsinline muted class="w-full h-full object-cover"></video>
+        <div class="absolute inset-8 border-2 border-emerald-400/80 rounded-2xl pointer-events-none flex items-center justify-center">
+          <div class="scanner-laser"></div>
+          <span class="text-[11px] font-bold text-white/80 bg-black/50 px-2 py-0.5 rounded backdrop-blur">Center waste item</span>
+        </div>
+      </div>
+      <div class="p-4 bg-gray-50 flex items-center justify-between gap-3">
+        <span class="text-xs text-gray-500">Hold the object steady in good lighting</span>
+        <button id="camera-capture-btn" type="button" class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition-all flex items-center gap-2">
+          <i data-lucide="aperture" class="w-4 h-4"></i> Capture &amp; Classify
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bin items list -->
+  <div id="bin-items-modal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="bin-items-title">
+    <div class="bg-white rounded-3xl max-w-lg w-full shadow-2xl max-h-[85vh] flex flex-col">
+      <div class="p-5 border-b border-gray-100 flex items-center justify-between">
+        <h3 id="bin-items-title" class="font-black text-gray-900 text-lg">Items</h3>
+        <button id="bin-items-close-btn" type="button" aria-label="Close" class="p-1 text-gray-400 hover:text-gray-700 rounded-lg">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <div id="bin-items-list" class="p-3 overflow-y-auto"></div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="hidden fixed bottom-5 left-1/2 -translate-x-1/2 z-[60] bg-gray-900 text-white text-sm px-4 py-2.5 rounded-xl shadow-lg max-w-[90vw] text-center" role="status"></div>
+
+  <footer class="bg-white border-t border-gray-200 mt-12 py-6 text-center text-xs text-gray-500">
+    <div class="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+      <div class="flex items-center gap-2">
+        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+        <span class="font-semibold text-gray-700">EcoSort AI — Smart Waste Segregator</span>
+      </div>
+      <p>Clean environment begins with right segregation. Reduce, Reuse, Recycle.</p>
+    </div>
+  </footer>
+
+  <script src="js/api.js" defer></script>
+  <script src="js/speech.js" defer></script>
+  <script src="js/vision.js" defer></script>
+  <script src="js/game.js" defer></script>
+  <script src="js/app.js" defer></script>
+</body>
+</html>

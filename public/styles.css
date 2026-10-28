@@ -1,0 +1,129 @@
+/* Custom Styles & Keyframes for Smart Waste Segregator */
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+body {
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background-color: #f8fafc;
+}
+
+/* Glassmorphism utility */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+/* Scanner Laser Animation */
+@keyframes scanLaser {
+  0% {
+    top: 0%;
+    opacity: 0.8;
+  }
+  50% {
+    top: 98%;
+    opacity: 1;
+  }
+  100% {
+    top: 0%;
+    opacity: 0.8;
+  }
+}
+
+.scanner-laser {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, #10b981, #06b6d4, #10b981, transparent);
+  box-shadow: 0 0 15px #10b981, 0 0 8px #06b6d4;
+  animation: scanLaser 2.2s ease-in-out infinite;
+  z-index: 20;
+}
+
+/* Pulse Glow for Dustbins */
+@keyframes gentleGlow {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
+  }
+  50% {
+    transform: scale(1.02);
+    box-shadow: 0 20px 30px -10px rgba(16, 185, 129, 0.2);
+  }
+}
+
+.glow-active {
+  animation: gentleGlow 3s ease-in-out infinite;
+}
+
+/* Dustbin Lid hover tilt effect */
+.dustbin-card:hover .dustbin-lid {
+  transform: translateY(-4px) rotate(-3deg);
+  transition: transform 0.25s ease-out;
+}
+
+/* Navigation tabs */
+.nav-btn {
+  color: #4b5563;
+  transition: color 0.15s, background-color 0.15s, box-shadow 0.15s;
+}
+
+.nav-btn:hover {
+  color: #047857;
+}
+
+.nav-btn[aria-current="page"] {
+  color: #047857;
+  background-color: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  font-weight: 700;
+}
+
+/* Smooth transition for tab changes */
+.tab-content {
+  animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Custom Scrollbar for suggestion menus */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Print Styles */
+@media print {
+  nav, button, #camera-modal, #bin-items-modal, #toast, .no-print {
+    display: none !important;
+  }
+  body {
+    background: white !important;
+  }
+}
